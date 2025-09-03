@@ -314,11 +314,11 @@ class UnifiedCryptoDataset(Dataset):
 
         if target_end_idx <= len(self.price_data_df):
             # We have a valid target sequence
-            target_price_df = self.price_data_df[self.coin_names].iloc[seq_end_idx:target_end_idx]
+            target_price_df = self.price_data_df[self.coin_names].iloc[target_end_idx]
             target_price_tensor = torch.tensor(target_price_df.values, dtype=torch.float32)
         else:
             # This handles cases at the end of the dataset, including predict_mode where a dummy target is needed.
-            target_price_tensor = torch.zeros(self.pred_len, self.num_coins, dtype=torch.float32)
+            target_price_tensor = torch.zeros(self.num_coins, dtype=torch.float32)
 
         price_seq_mark = self.all_time_stamps_encoded[idx:seq_end_idx]
 

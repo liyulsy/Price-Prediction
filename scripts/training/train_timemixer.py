@@ -95,12 +95,12 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'diff'
+PREDICTION_TARGET = 'price'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = True  # 重新启用GCN测试改进后的模型试新的图构建方法
-USE_NEWS_FEATURES = False
+USE_GCN = False  # 重新启用GCN测试改进后的模型试新的图构建方法
+USE_NEWS_FEATURES = True
 
 # --- Graph Construction Configuration ---
 # 基于快速比较结果，原始方法表现最佳！
@@ -316,7 +316,6 @@ def evaluate_model(model, data_loader, criterion, edge_index, device, task_type,
         coin_recalls = []
         coin_f1s = []
         
-        all_targets = all_targets.squeeze(1)
         for i, coin_name in enumerate(COIN_NAMES):
             coin_targets = all_targets[:, i]
             coin_preds = all_preds[:, i]

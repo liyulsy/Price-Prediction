@@ -36,17 +36,17 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'diff'
+PREDICTION_TARGET = 'price'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = True                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN
-USE_NEWS_FEATURES = False       # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
+USE_GCN = False                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN
+USE_NEWS_FEATURES = True       # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
 
 # --- Graph Construction Configuration ---
 # 图构建配置：定义如何构建加密货币之间的关系图
 # 基于实验结果，原始方法表现最佳！
-GRAPH_METHOD = 'original'  # 图构建方法选择
+GRAPH_METHOD = 'dynamic'  # 图构建方法选择
 # 可选方法：'original'(基于相关性), 'multi_layer'(多层图), 'dynamic'(动态图),
 #          'domain_knowledge'(领域知识), 'attention_based'(注意力机制)
 
@@ -82,6 +82,7 @@ GCN_CONFIG = 'improved_light'  # GCN架构选择
 PRICE_CSV_PATH = 'scripts/analysis/crypto_analysis/data/processed_data/1H/all_1H.csv'  # 价格数据文件路径
 NEWS_FEATURES_FOLDER = 'scripts/analysis/crypto_new_analyzer/features'                # 新闻特征文件夹路径
 CACHE_DIR = "experiments/caches"        # 缓存目录：存储模型和中间结果
+CACHE_DIR1 = "experiments/cache"
 BEST_MODEL_NAME = "best_timexer_model.pt"  # 最佳模型文件名
 
 # --- Dataset Parameters ---
@@ -388,7 +389,6 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         coin_recalls = []
         coin_f1s = []
 
-        all_targets = all_targets.squeeze(1)
         for i, coin_name in enumerate(COIN_NAMES):
             coin_targets = all_targets[:, i]
             coin_preds = all_preds[:, i]
@@ -647,10 +647,10 @@ if __name__ == '__main__':
 
     if USE_NEWS_FEATURES:
         print(f"� 将从缓存文件加载预处理的新闻特征")
-        print(f"📁 缓存路径: {os.path.join(CACHE_DIR, 'all_processed_news_feature_new10days.pt')}")
+        print(f"📁 缓存路径: {os.path.join(CACHE_DIR1, 'all_processed_news_feature_new10days.pt')}")
 
         # 检查缓存文件是否存在
-        cache_file = os.path.join(CACHE_DIR, "all_processed_news_feature_new10days.pt")
+        cache_file = os.path.join(CACHE_DIR1, "all_processed_news_feature_new10days.pt")
         if os.path.exists(cache_file):
             print(f"✅ 新闻特征缓存文件存在")
         else:
@@ -658,7 +658,7 @@ if __name__ == '__main__':
             print(f"� 请确保已预先生成新闻特征文件，或设置 USE_NEWS_FEATURES = False")
 
     if USE_NEWS_FEATURES:
-        processed_news_path = os.path.join(CACHE_DIR, "all_processed_news_feature_new10days.pt")
+        processed_news_path = os.path.join(CACHE_DIR1, "all_processed_news_feature_new10days.pt")
         # 对于diff/return，先尝试自动对齐，失败时才重新计算
         if PREDICTION_TARGET in ('diff', 'return'):
             print(f"🔄 差分/变化率模式：将尝试自动对齐现有新闻特征")

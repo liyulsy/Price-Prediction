@@ -36,11 +36,11 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'price'
+PREDICTION_TARGET = 'diff'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = True               # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
+USE_GCN = False               # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
 USE_NEWS_FEATURES = False      # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
 
 # --- Graph Construction Configuration ---
@@ -413,7 +413,6 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         coin_recalls = []
         coin_f1s = []
 
-        all_targets = all_targets.squeeze(1)
         for i, coin_name in enumerate(COIN_NAMES):
             coin_targets = all_targets[:, i]
             coin_preds = all_preds[:, i]
@@ -464,7 +463,6 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         # Denormalize for metrics calculation
         if PREDICTION_TARGET == 'price':
             if scaler:
-                all_targets = all_targets.squeeze(1)  # 变成 [samples, coins]
                 # all_preds和all_targets已经是2D: [samples, coins]
                 original_preds = scaler.inverse_transform(all_preds)
                 original_targets = scaler.inverse_transform(all_targets)
