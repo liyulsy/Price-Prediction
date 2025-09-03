@@ -920,8 +920,11 @@ if __name__ == '__main__':
     print(f"📊 早停配置: 耐心值={EARLY_STOPPING_PATIENCE}, 最小改善={MIN_DELTA}")
 
     # 早停机制变量
-    best_val_metric = float('inf')    # 记录最佳验证指标（初始化为无穷大）
-    patience_counter = 0              # 耐心计数器（记录连续没有改善的epoch数）
+    if TASK_TYPE == 'classification':
+        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（初始化为负无穷大）
+    else:
+        best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
+    patience_counter = 0                  # 耐心计数器（记录连续没有改善的epoch数）
 
     # 开始训练循环
     for epoch in range(EPOCHS):
@@ -1047,9 +1050,19 @@ if __name__ == '__main__':
             model, val_loader, criterion, edge_index, edge_weights, DEVICE, TASK_TYPE, scaler
         )
         # 获取用于学习率调度的验证指标
-        val_metric_for_scheduler = val_metrics['loss']
-        # 根据验证损失调整学习率
-        scheduler.step(val_metric_for_scheduler)
+        if TASK_TYPE == 'classification':
+            # 分类任务使用F1分数（越大越好，需要取负值用于早停）
+            val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
+        else:
+            # 回归任务使用损失（越小越好）
+            val_metric_for_scheduler = val_metrics['loss']
+        # 根据验证指标调整学习率
+        if TASK_TYPE == 'classification':
+            # 分类任务：使用F1分数（传入正值给调度器）
+            scheduler.step(-val_metric_for_scheduler)
+        else:
+            # 回归任务：使用损失
+            scheduler.step(val_metric_for_scheduler)
 
         # === 7.3: 打印训练进度 ===
         current_lr = optimizer.param_groups[0]['lr']
@@ -1106,12 +1119,22 @@ if __name__ == '__main__':
 
         # === 7.4: 早停机制和最佳模型保存 ===
         # 检查验证指标是否有显著改善
-        if val_metric_for_scheduler < best_val_metric - MIN_DELTA:
+        if TASK_TYPE == 'classification':
+            # 分类任务：F1分数越大越好（使用负值，所以比较逻辑相同）
+            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
+        else:
+            # 回归任务：损失越小越好
+            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
+
+        if improved:
             # 有显著改善：更新最佳指标，重置耐心计数器，保存模型
             best_val_metric = val_metric_for_scheduler  # 更新最佳验证指标
             patience_counter = 0                        # 重置耐心计数器
             torch.save(model.state_dict(), BEST_MODEL_PATH)  # 保存当前最佳模型
-            print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证指标: {best_val_metric:.4f})")
+            if TASK_TYPE == 'classification':
+                print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证F1: {-best_val_metric:.4f})")
+            else:
+                print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证损失: {best_val_metric:.4f})")
         else:
             # 没有显著改善：增加耐心计数器
             patience_counter += 1

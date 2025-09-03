@@ -759,9 +759,9 @@ if __name__ == '__main__':
     # 7. Training Loop
     # 早停机制变量
     if TASK_TYPE == 'classification':
-        best_val_metric = 0.0  # F1分数越高越好
+        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（使用负值，初始化为负无穷大）
     else:
-        best_val_metric = float('inf')  # 损失越低越好
+        best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
     patience_counter = 0
     for epoch in range(EPOCHS):
         model.train()
@@ -842,15 +842,22 @@ if __name__ == '__main__':
         val_metrics, _, _ = evaluate_model(model, val_loader, criterion, edge_index, edge_weights, DEVICE, TASK_TYPE, scaler, news_weight)
         
         # 选择不同的指标用于学习率调度和早停
-        val_metric_for_scheduler = val_metrics['loss']  # 学习率调度仍使用损失
         if TASK_TYPE == 'classification':
-            val_metric_for_early_stopping = val_metrics['f1_score']  # 早停使用F1分数
+            # 分类任务使用F1分数（越大越好，需要取负值用于早停）
+            val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
         else:
-            val_metric_for_early_stopping = val_metrics['loss']  # 回归任务使用损失
+            # 回归任务使用损失（越小越好）
+            val_metric_for_scheduler = val_metrics['loss']
+
 
         # 记录学习率变化前的值
         old_lr = optimizer.param_groups[0]['lr']
-        scheduler.step(val_metric_for_scheduler)
+        if TASK_TYPE == 'classification':
+            # 分类任务：使用F1分数（传入正值给调度器）
+            scheduler.step(-val_metric_for_scheduler)
+        else:
+            # 回归任务：使用损失
+            scheduler.step(val_metric_for_scheduler)
         new_lr = optimizer.param_groups[0]['lr']
 
         # 如果学习率发生变化，打印信息
@@ -899,26 +906,20 @@ if __name__ == '__main__':
                     print(f"⚠️  警告：模型只预测单一类别！混淆矩阵: {cm}")
 
         # 早停和模型保存逻辑
-        if TASK_TYPE == 'classification':
-            # 分类任务：F1分数越高越好
-            if val_metric_for_early_stopping > best_val_metric + MIN_DELTA:
-                best_val_metric = val_metric_for_early_stopping
-                patience_counter = 0
-                torch.save(model.state_dict(), BEST_MODEL_PATH)
-                print(f"🚀 New best model saved to {BEST_MODEL_PATH} (Val F1: {best_val_metric:.4f})")
+        if val_metric_for_scheduler < best_val_metric - MIN_DELTA:
+            best_val_metric = val_metric_for_scheduler
+            patience_counter = 0
+            torch.save(model.state_dict(), BEST_MODEL_PATH)
+            if TASK_TYPE == 'classification':
+                print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证F1: {-best_val_metric:.4f})")
             else:
-                patience_counter += 1
-                print(f"⏳ No improvement for {patience_counter} epochs (Best F1: {best_val_metric:.4f})")
+                print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证损失: {best_val_metric:.4f})")
         else:
-            # 回归任务：损失越低越好
-            if val_metric_for_early_stopping < best_val_metric - MIN_DELTA:
-                best_val_metric = val_metric_for_early_stopping
-                patience_counter = 0
-                torch.save(model.state_dict(), BEST_MODEL_PATH)
-                print(f"🚀 New best model saved to {BEST_MODEL_PATH} (Val Loss: {best_val_metric:.4f})")
+            patience_counter += 1
+            if TASK_TYPE == 'classification':
+                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳F1: {-best_val_metric:.4f})")
             else:
-                patience_counter += 1
-                print(f"⏳ No improvement for {patience_counter} epochs (Best Loss: {best_val_metric:.4f})")
+                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳损失: {best_val_metric:.4f})")
 
         # 早停检查
         if patience_counter >= EARLY_STOPPING_PATIENCE:
