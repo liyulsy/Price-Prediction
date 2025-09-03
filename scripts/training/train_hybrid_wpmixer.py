@@ -366,8 +366,8 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格
                     # 提取第一个预测步进行比较，确保维度匹配
-                    targets = target_data[:, 0, :] # [B, PRED_LEN, C] -> [B, C]
-                    outputs = outputs[:, :, 0]     # [B, C, PRED_LEN] -> [B, C]
+                    targets = target_data 
+                    outputs = outputs.squeeze(-1)     # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
@@ -952,8 +952,8 @@ if __name__ == '__main__':
                 # 回归任务：仅支持价格预测
                 if PREDICTION_TARGET == 'price':
                     # 提取第一个预测步进行比较，确保维度匹配
-                    targets = target_data[:, 0, :] # [B, PRED_LEN, C] -> [B, C]
-                    outputs = outputs[:, :, 0]     # [B, C, PRED_LEN] -> [B, C]
+                    targets = target_data
+                    outputs = outputs.squeeze(-1)
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
