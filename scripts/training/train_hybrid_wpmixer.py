@@ -37,7 +37,7 @@ PREDICTION_TARGET = 'price'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = False                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
+USE_GCN = True                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
 USE_NEWS_FEATURES = False    # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
 
 # --- Graph Construction Configuration ---
@@ -306,13 +306,30 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
             f.write("\n📈 各币种详细指标:\n")
 
             # 写入各币种详细指标
-            for coin_name in coin_names:
-                if coin_name in test_metrics:
+            if 'per_coin_metrics' in test_metrics:
+                for coin_name, coin_metrics in test_metrics['per_coin_metrics'].items():
                     f.write(f"  🪙 {coin_name}:\n")
-                    coin_metrics = test_metrics[coin_name]
                     for metric_name, metric_value in coin_metrics.items():
                         if isinstance(metric_value, (int, float)):
-                            comment = f"# {coin_name}的{metric_name}"
+                            # 为不同指标添加中文注释
+                            if metric_name.lower() == 'normalized_mae':
+                                comment = f"# {coin_name}的归一化MAE"
+                            elif metric_name.lower() == 'normalized_mse':
+                                comment = f"# {coin_name}的归一化MSE"
+                            elif metric_name.lower() == 'normalized_rmse':
+                                comment = f"# {coin_name}的归一化RMSE"
+                            elif metric_name.lower() == 'mape':
+                                comment = f"# {coin_name}的平均绝对百分比误差"
+                            elif metric_name.lower() == 'r2':
+                                comment = f"# {coin_name}的决定系数"
+                            elif metric_name.lower() == 'mae':
+                                comment = f"# {coin_name}的平均绝对误差"
+                            elif metric_name.lower() == 'mse':
+                                comment = f"# {coin_name}的均方误差"
+                            elif metric_name.lower() == 'rmse':
+                                comment = f"# {coin_name}的均方根误差"
+                            else:
+                                comment = f"# {coin_name}的{metric_name}"
                             f.write(f"    - {metric_name.upper()}: {metric_value:.4f}  {comment}\n")
                         else:
                             f.write(f"    - {metric_name.upper()}: {metric_value}\n")
