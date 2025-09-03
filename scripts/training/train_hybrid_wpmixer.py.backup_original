@@ -33,7 +33,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'diff'
+PREDICTION_TARGET = 'price'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
@@ -111,7 +111,7 @@ NUM_CLASSES = 1 if TASK_TYPE == 'regression' else 2  # 输出类别数：回归�
 # --- Training Parameters ---
 # 训练参数配置 - 加速优化版本
 BATCH_SIZE = 32                    # 批次大小：增加到64以提高GPU利用率
-EPOCHS = 20                        # 训练轮数：减少到30个epoch，配合更高学习率
+EPOCHS = 50                        # 训练轮数：减少到30个epoch，配合更高学习率
 LEARNING_RATE = 0.0001            # 学习率：大幅降低以解决R2负值问题
 WEIGHT_DECAY = 1e-4               # 权重衰减：保持不变
 VALIDATION_SPLIT_RATIO = 0.15     # 验证集比例：15%的数据用于验证
@@ -121,7 +121,7 @@ RANDOM_SEED = 42                  # 随机种子：确保实验可重现
 
 # --- Early Stopping Parameters ---
 # 早停机制参数：防止过拟合，节省训练时间
-EARLY_STOPPING_PATIENCE = 8     # 早停耐心值：连续30个epoch没有改善就停止训练（增加耐心）
+EARLY_STOPPING_PATIENCE = 20     # 早停耐心值：连续30个epoch没有改善就停止训练（增加耐心）
 MIN_DELTA = 1e-6                 # 最小改善阈值：改善必须大于0.0001才算有效（放宽阈值）
 
 def set_random_seeds(seed=42):
@@ -404,10 +404,10 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 # === 分类任务：将价格变化转换为涨跌标签 ===
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格：判断价格是否大于某个阈值
-                    targets = (target_data > 0).long()  # 涨=1, 跌=0，形状: [batch_size, num_nodes]
+                    targets = (target_data > 0).long().transpose(1, 2)  # 涨=1, 跌=0
                 elif PREDICTION_TARGET in ('diff', 'return'):
                     # 预测价差/变化率：数据集中 target 已是“下一步的差值/收益率”；直接判断正负
-                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0，形状: [batch_size, num_nodes]
+                    targets = (target_data > 0).long().transpose(1, 2)  # 上涨=1, 下跌=0
 
                     # 调试信息：检查标签分布
                     if batch_idx == 0:
@@ -454,12 +454,8 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格
                     # 提取第一个预测步进行比较，确保维度匹配
-                    targets = target_data
-                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
-                    if outputs.shape[-1] == 1:
-                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
-                    else:
-                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
+                    targets = target_data 
+                    outputs = outputs.squeeze(-1)     # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
@@ -504,7 +500,7 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         coin_f1s = []
 
         for i, coin_name in enumerate(COIN_NAMES):
-            coin_targets = all_targets[:, i]
+            coin_targets = all_targets[:, i].squeeze(-1)
             coin_preds = all_preds[:, i]
 
             # 计算每个币种的分类指标
@@ -991,7 +987,7 @@ if __name__ == '__main__':
                 # === 分类任务：预测价格涨跌方向 ===
                 if PREDICTION_TARGET in ('diff', 'return'):
                     # 预测价差/变化率：数据集中 target 已经是“下一步的差值/收益率”；直接判断正负
-                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0，形状: [batch_size, num_nodes]
+                    targets = (target_data > 0).long().transpose(1, 2)  # 上涨=1, 下跌=0
 
                     # 训练时的调试信息（每个epoch只打印一次）
                     if batch_idx == 0:
@@ -1048,11 +1044,7 @@ if __name__ == '__main__':
                 if PREDICTION_TARGET == 'price':
                     # 提取第一个预测步进行比较，确保维度匹配
                     targets = target_data
-                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
-                    if outputs.shape[-1] == 1:
-                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
-                    else:
-                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
+                    outputs = outputs.squeeze(-1)
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)

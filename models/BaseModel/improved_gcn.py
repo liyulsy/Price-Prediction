@@ -217,7 +217,8 @@ class AdaptiveGCN(nn.Module):
             # 学习每层的dropout率
             self.dropout_rates = nn.Parameter(torch.ones(num_layers) * dropout)
         else:
-            self.register_buffer('dropout_rates', torch.ones(num_layers) * dropout)
+            # 固定dropout率，直接存储为float列表
+            self.dropout_rates = [dropout] * num_layers
         
         if adaptive_activation:
             # 可学习的激活函数参数
@@ -249,9 +250,10 @@ class AdaptiveGCN(nn.Module):
                 # 自适应dropout
                 if self.adaptive_dropout:
                     dropout_rate = torch.sigmoid(self.dropout_rates[i]) * 0.8  # 限制在0-0.8
+                    dropout_rate = dropout_rate.item()  # 转换为float
                 else:
-                    dropout_rate = self.dropout_rates[i]
-                
+                    dropout_rate = self.dropout_rates[i]  # 已经是float
+
                 x = F.dropout(x, p=dropout_rate, training=self.training)
         
         return x
