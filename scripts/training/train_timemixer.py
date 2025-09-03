@@ -191,6 +191,68 @@ BEST_MODEL_PATH = os.path.join(model_save_dir, f"{model_variant_str}_{BEST_MODEL
 print(f"--- Configuration: {model_variant_str} ---")
 print(f"Best model will be saved to: {BEST_MODEL_PATH}")
 
+def save_classification_results(all_preds, all_targets, coin_names, model_name, test_metrics=None):
+    """保存分类任务的测试结果"""
+    import csv
+    import os
+    from datetime import datetime
+
+    base_save_dir = "experiments/cache/test_predictions"
+    model_save_dir = os.path.join(base_save_dir, model_name)
+    os.makedirs(model_save_dir, exist_ok=True)
+
+    # 保存详细预测结果
+    predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
+    with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['sample_idx', 'coin', 'true_label', 'predicted_label', 'is_correct'])
+
+        for sample_idx in range(len(all_preds)):
+            for coin_idx, coin_name in enumerate(coin_names):
+                true_val = all_targets[sample_idx, coin_idx]
+                pred_val = all_preds[sample_idx, coin_idx]
+                is_correct = 1 if true_val == pred_val else 0
+                true_label = "上涨" if true_val == 1 else "下跌"
+                pred_label = "上涨" if pred_val == 1 else "下跌"
+                writer.writerow([sample_idx, coin_name, true_label, pred_label, is_correct])
+
+    # 保存测试结果摘要
+    if test_metrics:
+        results_file = os.path.join(model_save_dir, "test_results.txt")
+        with open(results_file, 'w', encoding='utf-8') as f:
+            f.write("🎉 最终测试结果\n")
+            f.write("="*60 + "\n")
+            f.write("📊 整体指标:\n")
+
+            for name, value in test_metrics.items():
+                if not isinstance(value, dict) and isinstance(value, (int, float)):
+                    if name == 'loss':
+                        comment = "# 测试损失"
+                    elif name == 'accuracy':
+                        comment = "# 整体准确率"
+                    elif name == 'precision':
+                        comment = "# 整体精确率"
+                    elif name == 'recall':
+                        comment = "# 整体召回率"
+                    elif name == 'f1' or name == 'f1_score':
+                        comment = "# 整体F1分数"
+                    else:
+                        comment = f"# {name}"
+                    f.write(f"    - {name.upper()}: {value:.4f}  {comment}\n")
+
+            f.write("\n📈 各币种详细指标:\n")
+            if 'per_coin_metrics' in test_metrics:
+                for coin_name, coin_metrics in test_metrics['per_coin_metrics'].items():
+                    f.write(f"  🪙 {coin_name}:\n")
+                    for metric_name, metric_value in coin_metrics.items():
+                        if isinstance(metric_value, (int, float)):
+                            comment = f"# {coin_name}的{metric_name}"
+                            f.write(f"    - {metric_name.upper()}: {metric_value:.4f}  {comment}\n")
+
+            f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    print(f"✅ 分类任务测试结果已保存到: {model_save_dir}")
+
 def save_test_predictions(all_preds, all_targets, coin_names, timestamp=None, test_metrics=None):
     """
     保存测试集的预测值和真实值到CSV文件
@@ -883,6 +945,10 @@ if __name__ == '__main__':
             original_test_targets = test_targets
 
         save_test_predictions(original_test_preds, original_test_targets, COIN_NAMES, test_metrics=test_metrics)
+
+    elif TASK_TYPE == 'classification':
+        # 对于分类任务，使用专用的保存函数
+        save_classification_results(test_preds, test_targets, COIN_NAMES, model_variant_str, test_metrics)
 
     print(f"\n✅ Test Results:")
     print("  Overall:")

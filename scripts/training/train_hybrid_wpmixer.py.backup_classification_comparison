@@ -454,8 +454,12 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格
                     # 提取第一个预测步进行比较，确保维度匹配
-                    targets = target_data 
-                    outputs = outputs.squeeze(-1)     # [B, C, PRED_LEN] -> [B, C]
+                    targets = target_data
+                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
+                    if outputs.shape[-1] == 1:
+                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
+                    else:
+                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
@@ -500,7 +504,7 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         coin_f1s = []
 
         for i, coin_name in enumerate(COIN_NAMES):
-            coin_targets = all_targets[:, i].squeeze(-1)
+            coin_targets = all_targets[:, i]
             coin_preds = all_preds[:, i]
 
             # 计算每个币种的分类指标
@@ -1044,7 +1048,11 @@ if __name__ == '__main__':
                 if PREDICTION_TARGET == 'price':
                     # 提取第一个预测步进行比较，确保维度匹配
                     targets = target_data
-                    outputs = outputs.squeeze(-1)
+                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
+                    if outputs.shape[-1] == 1:
+                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
+                    else:
+                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)

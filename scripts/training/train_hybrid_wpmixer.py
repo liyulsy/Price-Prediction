@@ -70,7 +70,7 @@ GRAPH_PARAMS = {
 
 # --- GCN Configuration ---
 # GCN配置：选择图卷积网络的架构类型
-GCN_CONFIG = 'basic'  # GCN架构选择：使用最简单的配置避免过拟合
+GCN_CONFIG = 'improved_light'  # GCN架构选择：使用最简单的配置避免过拟合
 # 可选配置：'basic'(基础GCN), 'improved_light'(轻量改进), 'improved_gelu'(GELU激活),
 #          'gat_attention'(图注意力), 'adaptive'(自适应GCN)
 
@@ -183,6 +183,100 @@ BEST_MODEL_PATH = os.path.join(model_save_dir, f"{model_variant_str}_{BEST_MODEL
 print(f"--- Configuration: {model_variant_str} ---")
 print(f"Best model will be saved to: {BEST_MODEL_PATH}")
 
+def save_classification_results(all_preds, all_targets, coin_names, model_name, test_metrics=None):
+    """
+    保存分类任务的测试结果
+
+    Args:
+        all_preds: 预测的类别标签 [num_samples, num_coins]
+        all_targets: 真实的类别标签 [num_samples, num_coins]
+        coin_names: 币种名称列表
+        model_name: 模型名称
+        test_metrics: 测试指标字典
+    """
+    import csv
+    import os
+    from datetime import datetime
+
+    # 创建保存目录
+    base_save_dir = "experiments/cache/test_predictions"
+    model_save_dir = os.path.join(base_save_dir, model_name)
+    os.makedirs(model_save_dir, exist_ok=True)
+
+    # 保存详细预测结果
+    predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
+    with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['sample_idx', 'coin', 'true_label', 'predicted_label', 'is_correct'])
+
+        for sample_idx in range(len(all_preds)):
+            for coin_idx, coin_name in enumerate(coin_names):
+                true_val = all_targets[sample_idx, coin_idx]
+                pred_val = all_preds[sample_idx, coin_idx]
+
+                is_correct = 1 if true_val == pred_val else 0
+                true_label = "上涨" if true_val == 1 else "下跌"
+                pred_label = "上涨" if pred_val == 1 else "下跌"
+
+                writer.writerow([sample_idx, coin_name, true_label, pred_label, is_correct])
+
+    # 保存测试结果摘要
+    results_file = os.path.join(model_save_dir, "test_results.txt")
+    with open(results_file, 'w', encoding='utf-8') as f:
+        f.write("🎉 最终测试结果\n")
+        f.write("="*60 + "\n")
+        f.write("📊 整体指标:\n")
+
+        # 写入整体指标
+        for name, value in test_metrics.items():
+            if not isinstance(value, dict):
+                if isinstance(value, (int, float)):
+                    if name == 'loss':
+                        comment = "# 测试损失 - 模型在测试集上的损失值"
+                    elif name == 'accuracy':
+                        comment = "# 整体准确率 - 预测正确的样本比例"
+                    elif name == 'precision':
+                        comment = "# 整体精确率 - 预测为涨的样本中实际上涨的比例"
+                    elif name == 'recall':
+                        comment = "# 整体召回率 - 实际上涨的样本中被正确预测的比例"
+                    elif name == 'f1' or name == 'f1_score':
+                        comment = "# 整体F1分数 - 精确率和召回率的调和平均"
+                    elif name == 'avg_accuracy':
+                        comment = "# 平均准确率 - 各币种准确率的平均值"
+                    elif name == 'avg_precision':
+                        comment = "# 平均精确率 - 各币种精确率的平均值"
+                    elif name == 'avg_recall':
+                        comment = "# 平均召回率 - 各币种召回率的平均值"
+                    elif name == 'avg_f1':
+                        comment = "# 平均F1分数 - 各币种F1分数的平均值"
+                    else:
+                        comment = f"# {name}"
+
+                    f.write(f"    - {name.upper()}: {value:.4f}  {comment}\n")
+
+        # 写入各币种详细指标
+        f.write("\n📈 各币种详细指标:\n")
+        if 'per_coin_metrics' in test_metrics:
+            for coin_name, coin_metrics in test_metrics['per_coin_metrics'].items():
+                f.write(f"  🪙 {coin_name}:\n")
+                for metric_name, metric_value in coin_metrics.items():
+                    if isinstance(metric_value, (int, float)):
+                        if metric_name.lower() == 'accuracy':
+                            comment = f"# {coin_name}的准确率"
+                        elif metric_name.lower() == 'precision':
+                            comment = f"# {coin_name}的精确率"
+                        elif metric_name.lower() == 'recall':
+                            comment = f"# {coin_name}的召回率"
+                        elif metric_name.lower() == 'f1':
+                            comment = f"# {coin_name}的F1分数"
+                        else:
+                            comment = f"# {coin_name}的{metric_name}"
+                        f.write(f"    - {metric_name.upper()}: {metric_value:.4f}  {comment}\n")
+
+        f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    print(f"✅ 分类任务测试结果已保存到: {model_save_dir}")
+
 def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_metrics=None):
     """
     保存测试集的预测值和真实值到文件
@@ -215,8 +309,11 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
     predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
     with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        # 写入表头
-        writer.writerow(['sample_idx', 'coin', 'true_value', 'predicted_value', 'absolute_error', 'percentage_error'])
+        # 根据任务类型写入不同的表头
+        if TASK_TYPE == 'regression':
+            writer.writerow(['sample_idx', 'coin', 'true_value', 'predicted_value', 'absolute_error', 'percentage_error'])
+        else:  # classification
+            writer.writerow(['sample_idx', 'coin', 'true_label', 'predicted_label', 'is_correct'])
 
         # === 遍历所有样本和币种 ===
         for sample_idx in range(len(all_preds)):
@@ -225,13 +322,21 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
                 true_val = all_targets[sample_idx, coin_idx]
                 pred_val = all_preds[sample_idx, coin_idx]
 
-                # === 计算误差指标 ===
-                abs_error = abs(true_val - pred_val)  # 绝对误差
-                # 计算百分比误差，避免除零错误
-                pct_error = (abs_error / abs(true_val)) * 100 if abs(true_val) > 1e-8 else float('inf')
-
-                # === 写入一行数据 ===
-                writer.writerow([sample_idx, coin_name, true_val, pred_val, abs_error, pct_error])
+                # === 根据任务类型计算不同的指标 ===
+                if TASK_TYPE == 'regression':
+                    # 回归任务：计算数值误差
+                    abs_error = abs(true_val - pred_val)  # 绝对误差
+                    # 计算百分比误差，避免除零错误
+                    pct_error = (abs_error / abs(true_val)) * 100 if abs(true_val) > 1e-8 else float('inf')
+                    # 写入回归数据
+                    writer.writerow([sample_idx, coin_name, true_val, pred_val, abs_error, pct_error])
+                else:
+                    # 分类任务：计算分类准确性
+                    is_correct = 1 if true_val == pred_val else 0  # 是否预测正确
+                    true_label = "上涨" if true_val == 1 else "下跌"
+                    pred_label = "上涨" if pred_val == 1 else "下跌"
+                    # 写入分类数据
+                    writer.writerow([sample_idx, coin_name, true_label, pred_label, is_correct])
 
     # === 保存统计信息 ===
     # 包含每个币种的统计指标汇总
@@ -1205,6 +1310,10 @@ if __name__ == '__main__':
 
         # 保存详细的预测结果到CSV文件，包含测试指标
         save_test_predictions(original_test_preds, original_test_targets, COIN_NAMES, model_variant_str, test_metrics)
+
+    elif TASK_TYPE == 'classification':
+        # 对于分类任务，使用专用的保存函数
+        save_classification_results(test_preds, test_targets, COIN_NAMES, model_variant_str, test_metrics)
 
     # === 步骤10: 打印最终测试结果 ===
     print(f"\n" + "="*60)

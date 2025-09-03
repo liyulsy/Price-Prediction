@@ -12,18 +12,15 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
 import csv
 from datetime import datetime
- 
+
 # Add the project root to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
 project_root = os.path.join(current_dir, '..', '..')
 sys.path.append(project_root)
 
-# --- Model and Dataset Imports ---
-# 导入TimeXer模型：结合了时间序列预测和图神经网络的统一模型
-from models.MixModel.unified_timexer_gcn import UnifiedTimexerGCN
-# 导入数据集处理类：处理加密货币价格和新闻数据
+# --- 关键修改：导入新的混合重构模型 ---
+from models.MixModel.hybrid_reconstruction_wpmixer import HybridReconstructionWPMixer
 from scripts.analysis.crypto_new_analyzer.unified_dataset import UnifiedCryptoDataset, load_news_data
-# 导入图构建工具：用于构建加密货币之间的关系图
 from dataloader.gnn_loader import generate_edge_index, generate_advanced_edge_index, analyze_graph_properties
 
 # --- Configuration ---
@@ -36,15 +33,15 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'price'
+PREDICTION_TARGET = 'diff'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = False                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN
-USE_NEWS_FEATURES = True       # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
+USE_GCN = True                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
+USE_NEWS_FEATURES = False    # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
 
 # --- Graph Construction Configuration ---
-# 图构建配置：定义如何构建加密货币之间的关系图
+# 图构建配置：定义如何构建加密货币之间的关系图 
 # 基于实验结果，原始方法表现最佳！
 GRAPH_METHOD = 'dynamic'  # 图构建方法选择
 # 可选方法：'original'(基于相关性), 'multi_layer'(多层图), 'dynamic'(动态图),
@@ -73,7 +70,7 @@ GRAPH_PARAMS = {
 
 # --- GCN Configuration ---
 # GCN配置：选择图卷积网络的架构类型
-GCN_CONFIG = 'improved_light'  # GCN架构选择
+GCN_CONFIG = 'improved_gelu'  # GCN架构选择：使用最简单的配置避免过拟合
 # 可选配置：'basic'(基础GCN), 'improved_light'(轻量改进), 'improved_gelu'(GELU激活),
 #          'gat_attention'(图注意力), 'adaptive'(自适应GCN)
 
@@ -81,34 +78,42 @@ GCN_CONFIG = 'improved_light'  # GCN架构选择
 # 数据和缓存路径配置
 PRICE_CSV_PATH = 'scripts/analysis/crypto_analysis/data/processed_data/1H/all_1H.csv'  # 价格数据文件路径
 NEWS_FEATURES_FOLDER = 'scripts/analysis/crypto_new_analyzer/features'                # 新闻特征文件夹路径
-CACHE_DIR = "experiments/caches"        # 缓存目录：存储模型和中间结果
-CACHE_DIR1 = "experiments/cache"
-BEST_MODEL_NAME = "best_timexer_model.pt"  # 最佳模型文件名
+CACHE_DIR = "experiments/cache"        # 缓存目录：存储模型和中间结果
+BEST_MODEL_NAME = "best_wpmixer_model.pt"  # 最佳模型文件名
 
 # --- Dataset Parameters ---
 # 数据集参数配置
 COIN_NAMES = ['BTC', 'ETH', 'BNB', 'XRP', 'LTC', 'DOGE', 'SOL', 'AVAX']  # 要分析的加密货币列表
-PRICE_SEQ_LEN = 90              # 价格序列长度：使用过去90个时间点的数据进行预测
+PRICE_SEQ_LEN = 90               # 价格序列长度：保持96以匹配patch配置
 THRESHOLD = 0.6                 # 图构建阈值：相关性超过0.6才建立连接
-NORM_TYPE = 'standard'            # 数据归一化方式：'minmax'(0-1归一化) 或 'standard'(标准化)
+NORM_TYPE = 'standard'      # 数据归一化方式：'minmax'(0-1归一化) 或 'standard'(标准化)
 TIME_ENCODING_ENABLED_IN_DATASET = True  # 是否启用时间编码：包含小时、星期等时间特征
 TIME_FREQ_IN_DATASET = 'h'      # 时间频率：'h'(小时), 'd'(天), 'w'(周)
 
-# --- TimeXer Model Parameters ---
-# TimeXer模型架构参数
+# --- WPMixer Model Parameters ---
+# WPMixer模型架构参数
+D_MODEL = 256                   # 模型维度：恢复到128以提高模型容量
+PATCH_LEN = 16                   # 补丁长度：保持8以匹配序列长度
+PATCH_STRIDE = 8                # 补丁步长：保持4
+# NUM_MIXER_LAYERS = 4          # 已移除：新架构中混合层数量由内部架构决定
+WAVELET_NAME = 'db2'            # 小波类型：Daubechies 4小波
+WAVELET_LEVEL = 1              # 小波分解层数
+TFACTOR = 5                     # Token混合器扩展因子
+DFACTOR = 5                     # 嵌入混合器扩展因子
+
 NEWS_PROCESSED_DIM = 64         # 新闻特征处理后的维度：将原始新闻特征压缩到64维
-GCN_HIDDEN_DIM = 256           # GCN隐藏层维度：图卷积网络的中间层大小
-GCN_OUTPUT_DIM = 128           # GCN输出维度：图卷积网络的输出特征维度
-MLP_HIDDEN_DIM_1 = 256         # MLP第一隐藏层维度：减小以避免TimeXer特征主导
-MLP_HIDDEN_DIM_2 = 256         # MLP第二隐藏层维度：多层感知机的第二层大小
+GCN_HIDDEN_DIM = 128           # GCN隐藏层维度：减少复杂度，避免过拟合
+GCN_OUTPUT_DIM = 64            # GCN输出维度：与输入维度匹配，保持信息流
+MLP_HIDDEN_DIM_1 = 256        # MLP第一隐藏层维度：大幅增加以提高模型容量
+MLP_HIDDEN_DIM_2 = 256         # MLP第二隐藏层维度：增加以匹配第一层
 NUM_CLASSES = 1 if TASK_TYPE == 'regression' else 2  # 输出类别数：回归任务=1，分类任务=2
 
 # --- Training Parameters ---
-# 训练参数配置
-BATCH_SIZE = 32                    # 批次大小：每次训练使用32个样本
-EPOCHS = 50                        # 训练轮数：最大训练50个epoch（可能因早停而提前结束）
-LEARNING_RATE = 0.001             # 学习率：控制参数更新的步长，提高初始学习率
-WEIGHT_DECAY = 1e-5               # 权重衰减：L2正则化系数，防止过拟合
+# 训练参数配置 - 加速优化版本
+BATCH_SIZE = 32                    # 批次大小：增加到64以提高GPU利用率
+EPOCHS = 20                        # 训练轮数：减少到30个epoch，配合更高学习率
+LEARNING_RATE = 0.0001            # 学习率：大幅降低以解决R2负值问题
+WEIGHT_DECAY = 1e-4               # 权重衰减：保持不变
 VALIDATION_SPLIT_RATIO = 0.15     # 验证集比例：15%的数据用于验证
 TEST_SPLIT_RATIO = 0.15           # 测试集比例：15%的数据用于最终测试
 FORCE_RECOMPUTE_NEWS = False      # 是否强制重新计算新闻特征：False=使用缓存
@@ -116,8 +121,8 @@ RANDOM_SEED = 42                  # 随机种子：确保实验可重现
 
 # --- Early Stopping Parameters ---
 # 早停机制参数：防止过拟合，节省训练时间
-EARLY_STOPPING_PATIENCE = 20     # 早停耐心值：连续20个epoch没有改善就停止训练
-MIN_DELTA = 1e-6                  # 最小改善阈值：改善必须大于0.000001才算有效
+EARLY_STOPPING_PATIENCE = 8     # 早停耐心值：连续30个epoch没有改善就停止训练（增加耐心）
+MIN_DELTA = 1e-6                 # 最小改善阈值：改善必须大于0.0001才算有效（放宽阈值）
 
 def set_random_seeds(seed=42):
     """
@@ -146,6 +151,22 @@ def set_random_seeds(seed=42):
     # 设置Python哈希随机化环境变量
     os.environ['PYTHONHASHSEED'] = str(seed)      # 确保字典等数据结构的顺序一致
 
+def optimize_gpu_performance():
+    """GPU性能优化设置"""
+    if torch.cuda.is_available():
+        # 注意：不设置 torch.backends.cudnn.benchmark = True
+        # 因为这会与 set_random_seeds() 中的确定性设置冲突
+        # 为了保证结果可重现，我们保持 benchmark = False
+
+        # 启用TensorFloat-32 (TF32) 以加速训练
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
+        # 清理GPU缓存
+        torch.cuda.empty_cache()
+
+        print("✅ GPU性能优化已启用（保持确定性）")
+
 # --- Dynamic File Path ---
 # 根据任务类型创建子目录
 task_dir = "classification" if TASK_TYPE == "classification" else "regression"
@@ -154,7 +175,7 @@ model_save_dir = os.path.join(CACHE_DIR, task_dir)
 # 确保保存目录存在
 os.makedirs(model_save_dir, exist_ok=True)
 
-model_variant = ['TimeXer', TASK_TYPE]
+model_variant = ['WPMixer', TASK_TYPE]
 model_variant.append("with_gcn" if USE_GCN else "no_gcn")
 model_variant.append("with_news" if USE_NEWS_FEATURES else "no_news")
 model_variant_str = "_".join(model_variant)
@@ -162,72 +183,27 @@ BEST_MODEL_PATH = os.path.join(model_save_dir, f"{model_variant_str}_{BEST_MODEL
 print(f"--- Configuration: {model_variant_str} ---")
 print(f"Best model will be saved to: {BEST_MODEL_PATH}")
 
-def save_classification_results(all_preds, all_targets, coin_names, model_name, test_metrics=None):
-    """保存分类任务的测试结果"""
-    import csv
-    import os
-    from datetime import datetime
-
-    base_save_dir = "experiments/cache/test_predictions"
-    model_save_dir = os.path.join(base_save_dir, model_name)
-    os.makedirs(model_save_dir, exist_ok=True)
-
-    predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
-    with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['sample_idx', 'coin', 'true_label', 'predicted_label', 'is_correct'])
-
-        for sample_idx in range(len(all_preds)):
-            for coin_idx, coin_name in enumerate(coin_names):
-                true_val = all_targets[sample_idx, coin_idx]
-                pred_val = all_preds[sample_idx, coin_idx]
-                is_correct = 1 if true_val == pred_val else 0
-                true_label = "上涨" if true_val == 1 else "下跌"
-                pred_label = "上涨" if pred_val == 1 else "下跌"
-                writer.writerow([sample_idx, coin_name, true_label, pred_label, is_correct])
-
-    if test_metrics:
-        results_file = os.path.join(model_save_dir, "test_results.txt")
-        with open(results_file, 'w', encoding='utf-8') as f:
-            f.write("🎉 最终测试结果\n")
-            f.write("="*60 + "\n")
-            f.write("📊 整体指标:\n")
-
-            for name, value in test_metrics.items():
-                if not isinstance(value, dict) and isinstance(value, (int, float)):
-                    comment = f"# {name}"
-                    f.write(f"    - {name.upper()}: {value:.4f}  {comment}\n")
-
-            f.write("\n📈 各币种详细指标:\n")
-            if 'per_coin_metrics' in test_metrics:
-                for coin_name, coin_metrics in test_metrics['per_coin_metrics'].items():
-                    f.write(f"  🪙 {coin_name}:\n")
-                    for metric_name, metric_value in coin_metrics.items():
-                        if isinstance(metric_value, (int, float)):
-                            f.write(f"    - {metric_name.upper()}: {metric_value:.4f}  # {coin_name}的{metric_name}\n")
-
-            f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-    print(f"✅ 分类任务测试结果已保存到: {model_save_dir}")
-
 def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_metrics=None):
     """
-    保存测试集的预测值和真实值到CSV文件
+    保存测试集的预测值和真实值到文件
 
     功能：
-        将模型在测试集上的预测结果保存为两个CSV文件：
-        1. 详细预测结果：每个样本每个币种的预测值、真实值和误差
-        2. 统计信息：每个币种的统计指标汇总
+        将模型在测试集上的预测结果保存为文件：
+        1. 详细预测结果：每个样本每个币种的预测值、真实值和误差 (CSV)
+        2. 统计信息：每个币种的统计指标汇总 (CSV)
+        3. 格式化测试结果：完整的测试输出 (TXT)
 
     Args:
         all_preds: 所有预测值 [num_samples, num_coins]
         all_targets: 所有真实值 [num_samples, num_coins]
         coin_names: 币种名称列表
         model_name: 模型名称（用于文件命名）
+        test_metrics: 测试指标字典（可选）
 
-    输出文件：
-        - test_predictions_{model_name}.csv: 详细预测结果
-        - test_statistics_{model_name}.csv: 统计信息汇总
+    输出文件（保存在 experiments/cache/test_predictions/{model_name}/ 目录下）：
+        - test_predictions.csv: 详细预测结果
+        - test_statistics.csv: 统计信息汇总
+        - test_results.txt: 格式化测试结果
     """
     # === 创建按模型名称分类的保存目录 ===
     base_save_dir = "experiments/cache/test_predictions"
@@ -360,6 +336,8 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
 
             f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
+        print(f"  格式化结果: {results_txt_file}")
+
     # === 打印保存信息 ===
     print(f"测试集预测结果已保存到 {model_save_dir}:")
     print(f"  详细结果: test_predictions.csv")
@@ -415,10 +393,9 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
 
             # === 模型前向传播 ===
             outputs = model(
-                price_seq,              # 价格序列
-                x_mark_enc,            # 时间编码
-                edge_index=edge_index,  # 图的边索引
-                edge_weight=edge_weights,  # 图的边权重
+                price_data=price_seq,        # 价格序列
+                edge_index=edge_index,       # 图的边索引
+                edge_weight=edge_weights,    # 图的边权重
                 news_features=news_features  # 新闻特征
             )
 
@@ -427,10 +404,10 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 # === 分类任务：将价格变化转换为涨跌标签 ===
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格：判断价格是否大于某个阈值
-                    targets = (target_data > 0).long()  # 涨=1, 跌=0
+                    targets = (target_data > 0).long()  # 涨=1, 跌=0，形状: [batch_size, num_nodes]
                 elif PREDICTION_TARGET in ('diff', 'return'):
                     # 预测价差/变化率：数据集中 target 已是“下一步的差值/收益率”；直接判断正负
-                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0
+                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0，形状: [batch_size, num_nodes]
 
                     # 调试信息：检查标签分布
                     if batch_idx == 0:
@@ -476,7 +453,13 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 # === 回归任务：仅支持价格预测 ===
                 if PREDICTION_TARGET == 'price':
                     # 直接预测价格
+                    # 提取第一个预测步进行比较，确保维度匹配
                     targets = target_data
+                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
+                    if outputs.shape[-1] == 1:
+                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
+                    else:
+                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
@@ -570,9 +553,10 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
         # Denormalize for metrics calculation
         if PREDICTION_TARGET == 'price':
             if scaler:
-                num_coins = all_preds.shape[1]
-                original_preds = scaler.inverse_transform(all_preds.reshape(-1, num_coins))
-                original_targets = scaler.inverse_transform(all_targets.reshape(-1, num_coins))
+                # all_preds和all_targets已经是2D: [samples, coins]
+                original_preds = scaler.inverse_transform(all_preds)
+                original_targets = scaler.inverse_transform(all_targets)
+                print(f"🔄 反归一化完成: 预测值形状={original_preds.shape}, 目标值形状={original_targets.shape}")
             else:
                 original_preds = all_preds
                 original_targets = all_targets
@@ -670,6 +654,10 @@ if __name__ == '__main__':
     set_random_seeds(RANDOM_SEED)
     print(f"🎯 设置随机种子: {RANDOM_SEED}")
     print(f"📱 使用设备: {DEVICE}")
+
+    # GPU性能优化
+    optimize_gpu_performance()
+
     # 创建缓存目录（如果不存在）
     os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -713,6 +701,8 @@ if __name__ == '__main__':
             edge_index = edge_index.to(DEVICE)
             edge_weights = edge_weights.to(DEVICE) if edge_weights is not None else None
 
+
+
         # 分析并打印图的属性（连接数、密度等）
         graph_properties = analyze_graph_properties(edge_index, edge_weights, len(COIN_NAMES))
         print(f"📈 图属性分析:")
@@ -727,6 +717,7 @@ if __name__ == '__main__':
 
     # === 步骤4: 数据预处理与归一化 ===
     print(f"🔄 数据预处理: target={PREDICTION_TARGET}, norm={NORM_TYPE}")
+    print(f"⚠️  重要：为避免数据泄露，将在数据集划分后再进行标准化")
 
     # 先根据目标构造要归一化的数据
     if PREDICTION_TARGET == 'diff':
@@ -887,53 +878,40 @@ if __name__ == '__main__':
     # else:
     #     print(f"\n🚫 新闻特征已禁用")
 
-    # 5. Initialize TimeXer Model
-    print(f"🚀 初始化TimeXer模型，任务类型: {TASK_TYPE}, GCN配置: {GCN_CONFIG}")
-
-    # 创建正确的配置对象
-    class TimeXerConfigs:
+    # --- 模型初始化 ---
+    class WPMixerConfigs:
         def __init__(self):
-            self.enc_in = dataset.num_coins
-            self.seq_len = PRICE_SEQ_LEN
-            self.pred_len = 1
-            self.d_model = 64
-            self.d_ff = 128
-            self.n_heads = 4
-            self.e_layers = 2
-            self.dropout = 0.3
-            self.task_type = TASK_TYPE  # 重要：正确设置任务类型
-            self.use_norm = True
-            self.patch_len = 16
-            self.stride = 8
-            self.individual = False
-            self.act = 'gelu'
-            self.down_sampling_layers = 3
-            self.down_sampling_window = 2
-            self.down_sampling_method = 'avg'
-            self.embed = 'timeF'
-            self.freq = 'h'
-            self.factor = 1
-            self.output_attention = False
-            self.activation = 'gelu'
-            self.num_time_features = 6
+            self.input_length = PRICE_SEQ_LEN
+            self.pred_length = 1 # We predict a sequence
+            self.d_model = D_MODEL
+            self.patch_len = PATCH_LEN
+            self.patch_stride = PATCH_STRIDE
+            self.wavelet_name = WAVELET_NAME
+            self.level = WAVELET_LEVEL
+            self.tfactor = TFACTOR
+            self.dfactor = DFACTOR
+            self.dropout = 0.1
+            self.no_decomposition = False
+            self.use_amp = False
+            self.device = DEVICE # 修复：添加device属性
 
-    timexer_configs = TimeXerConfigs()
+    wpmixer_configs = WPMixerConfigs()
 
-    model = UnifiedTimexerGCN(
-        configs=timexer_configs,  # 传递正确的配置
+    print("🚀 初始化新的混合模型 ---")
+    model = HybridReconstructionWPMixer(
+        configs=wpmixer_configs,
+        use_gcn=USE_GCN,
+        gcn_config=GCN_CONFIG,
+        news_feature_dim=dataset.news_feature_dim if USE_NEWS_FEATURES else None,
         gcn_hidden_dim=GCN_HIDDEN_DIM,
         gcn_output_dim=GCN_OUTPUT_DIM,
-        use_gcn=USE_GCN,
-        gcn_config=GCN_CONFIG,  # 新增：传递GCN配置
-        news_feature_dim=dataset.news_feature_dim if USE_NEWS_FEATURES else None,
         news_processed_dim=NEWS_PROCESSED_DIM,
-        mlp_hidden_dim_1=MLP_HIDDEN_DIM_1,
-        mlp_hidden_dim_2=MLP_HIDDEN_DIM_2,
+        batch_size=BATCH_SIZE,
+        task_type=TASK_TYPE,
         num_classes=NUM_CLASSES
     ).to(DEVICE)
-
-    print(model)
-    print(f"Model Parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+    print("✅ 模型创建成功!")
+    print(f"📊 模型参数量: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     # === 步骤6: 设置损失函数、优化器和学习率调度器 ===
     print("⚙️ 配置训练组件...")
@@ -952,8 +930,8 @@ if __name__ == '__main__':
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,           # 要调整的优化器
         'min',              # 监控指标的模式：'min'表示越小越好
-        patience=10,        # 等待10个epoch没有改善再降低学习率（增加耐心）
-        factor=0.8,         # 学习率衰减因子：每次减少20%（更温和）
+        patience=10,        # 等待10个epoch没有改善再降低学习率（更宽容）
+        factor=0.8,         # 学习率衰减因子：每次减少20%（更温和的衰减）
         min_lr=1e-7         # 最小学习率：防止学习率过小
     )
     print(f"📈 学习率调度器配置: patience=10, factor=0.8, min_lr=1e-7")
@@ -964,7 +942,7 @@ if __name__ == '__main__':
 
     # 早停机制变量
     if TASK_TYPE == 'classification':
-        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（使用负值，初始化为负无穷大）
+        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（初始化为负无穷大）
     else:
         best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
     patience_counter = 0                  # 耐心计数器（记录连续没有改善的epoch数）
@@ -1000,12 +978,11 @@ if __name__ == '__main__':
             optimizer.zero_grad()  # 清零上一步的梯度缓存，防止梯度累积
 
             # === 模型前向传播：多模态输入融合 ===
-            # 将价格序列、时间编码、图结构、新闻特征输入模型
+            # 将价格序列、图结构、新闻特征输入WPMixer模型
             outputs = model(
-                price_seq,              # 价格序列：主要的时序特征
-                x_mark_enc,            # 时间编码：时间模式特征
-                edge_index=edge_index,  # 图的边索引：定义币种间连接关系
-                edge_weight=edge_weights,  # 图的边权重：连接强度
+                price_data=price_seq,        # 价格序列：主要的时序特征
+                edge_index=edge_index,       # 图的边索引：定义币种间连接关系
+                edge_weight=edge_weights,    # 图的边权重：连接强度
                 news_features=news_features  # 新闻特征：市场情感和事件信息
             )
 
@@ -1014,7 +991,7 @@ if __name__ == '__main__':
                 # === 分类任务：预测价格涨跌方向 ===
                 if PREDICTION_TARGET in ('diff', 'return'):
                     # 预测价差/变化率：数据集中 target 已经是“下一步的差值/收益率”；直接判断正负
-                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0
+                    targets = (target_data > 0).long()  # 上涨=1, 下跌=0，形状: [batch_size, num_nodes]
 
                     # 训练时的调试信息（每个epoch只打印一次）
                     if batch_idx == 0:
@@ -1025,16 +1002,33 @@ if __name__ == '__main__':
                             'target_mean': target_data.mean().item(),
                             'target_std': target_data.std().item()
                         }
-                        print(f"🔍 训练集标签统计: 上涨={target_stats['positive_samples']}/{target_stats['total_samples']} ({target_stats['positive_samples']/target_stats['total_samples']:.1%})")
 
-                        # 检查模型输出分布
+                        # 分析预测分布
                         with torch.no_grad():
                             pred_probs = torch.softmax(outputs, dim=-1)
                             pred_classes = torch.argmax(outputs, dim=-1)
-                            class_0_pred = (pred_classes == 0).sum().item()
-                            class_1_pred = (pred_classes == 1).sum().item()
-                            total_pred = pred_classes.numel()
-                            print(f"🔍 模型预测分布: 下跌={class_0_pred}/{total_pred} ({class_0_pred/total_pred:.1%}), 上涨={class_1_pred}/{total_pred} ({class_1_pred/total_pred:.1%})")
+
+                            pred_stats = {
+                                'pred_class_0': (pred_classes == 0).sum().item(),
+                                'pred_class_1': (pred_classes == 1).sum().item(),
+                                'avg_prob_class_0': pred_probs[:, :, 0].mean().item(),
+                                'avg_prob_class_1': pred_probs[:, :, 1].mean().item(),
+                                'max_prob_class_0': pred_probs[:, :, 0].max().item(),
+                                'max_prob_class_1': pred_probs[:, :, 1].max().item()
+                            }
+                        print(f"🔍 训练集标签统计: 上涨={target_stats['positive_samples']}/{target_stats['total_samples']} ({target_stats['positive_samples']/target_stats['total_samples']:.1%})")
+                        print(f"🔍 模型预测分布: 下跌={pred_stats['pred_class_0']}/{target_stats['total_samples']} ({pred_stats['pred_class_0']/target_stats['total_samples']:.1%}), 上涨={pred_stats['pred_class_1']}/{target_stats['total_samples']} ({pred_stats['pred_class_1']/target_stats['total_samples']:.1%})")
+                        print(f"🔍 预测概率统计: 下跌平均={pred_stats['avg_prob_class_0']:.3f}(最大={pred_stats['max_prob_class_0']:.3f}), 上涨平均={pred_stats['avg_prob_class_1']:.3f}(最大={pred_stats['max_prob_class_1']:.3f})")
+
+                        # 检查是否出现预测偏向问题
+                        pred_ratio_0 = pred_stats['pred_class_0'] / target_stats['total_samples']
+                        pred_ratio_1 = pred_stats['pred_class_1'] / target_stats['total_samples']
+                        if pred_ratio_0 > 0.9 or pred_ratio_1 > 0.9:
+                            print(f"⚠️ 警告：模型预测严重偏向一个类别！")
+                            if USE_GCN:
+                                print(f"� 建议：尝试降低GCN的影响或调整学习率")
+                            else:
+                                print(f"💡 建议：检查数据平衡性或调整损失函数")
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for classification")
 
@@ -1052,8 +1046,13 @@ if __name__ == '__main__':
             else:
                 # 回归任务：仅支持价格预测
                 if PREDICTION_TARGET == 'price':
-                    # 直接预测价格
+                    # 提取第一个预测步进行比较，确保维度匹配
                     targets = target_data
+                    # 安全地处理输出维度：如果最后一维是1则squeeze，否则取第一个预测步
+                    if outputs.shape[-1] == 1:
+                        outputs = outputs.squeeze(-1)     # [B, C, 1] -> [B, C]
+                    else:
+                        outputs = outputs[:, :, 0]        # [B, C, PRED_LEN] -> [B, C]
                 else:
                     raise ValueError(f"PREDICTION_TARGET '{PREDICTION_TARGET}' not supported for regression")
                 loss = criterion(outputs, targets)
@@ -1075,15 +1074,14 @@ if __name__ == '__main__':
         val_metrics, _, _ = evaluate_model(
             model, val_loader, criterion, edge_index, edge_weights, DEVICE, TASK_TYPE, scaler
         )
-        # 选择不同的指标用于学习率调度和早停
+        # 获取用于学习率调度的验证指标
         if TASK_TYPE == 'classification':
             # 分类任务使用F1分数（越大越好，需要取负值用于早停）
             val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
         else:
             # 回归任务使用损失（越小越好）
             val_metric_for_scheduler = val_metrics['loss']
-
-        # 根据验证损失调整学习率
+        # 根据验证指标调整学习率
         if TASK_TYPE == 'classification':
             # 分类任务：使用F1分数（传入正值给调度器）
             scheduler.step(-val_metric_for_scheduler)
@@ -1146,20 +1144,25 @@ if __name__ == '__main__':
 
         # === 7.4: 早停机制和最佳模型保存 ===
         # 检查验证指标是否有显著改善
-        if val_metric_for_scheduler < best_val_metric - MIN_DELTA:
-            best_val_metric = val_metric_for_scheduler
-            patience_counter = 0
-            torch.save(model.state_dict(), BEST_MODEL_PATH)
+        if TASK_TYPE == 'classification':
+            # 分类任务：F1分数越大越好（使用负值，所以比较逻辑相同）
+            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
+        else:
+            # 回归任务：损失越小越好
+            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
+
+        if improved:
+            # 有显著改善：更新最佳指标，重置耐心计数器，保存模型
+            best_val_metric = val_metric_for_scheduler  # 更新最佳验证指标
+            patience_counter = 0                        # 重置耐心计数器
+            torch.save(model.state_dict(), BEST_MODEL_PATH)  # 保存当前最佳模型
             if TASK_TYPE == 'classification':
                 print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证F1: {-best_val_metric:.4f})")
             else:
                 print(f"🚀 保存新的最佳模型到 {BEST_MODEL_PATH} (验证损失: {best_val_metric:.4f})")
         else:
+            # 没有显著改善：增加耐心计数器
             patience_counter += 1
-            if TASK_TYPE == 'classification':
-                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳F1: {-best_val_metric:.4f})")
-            else:
-                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳损失: {best_val_metric:.4f})")
             print(f"⏳ 连续 {patience_counter} 个epoch无改善")
 
         # === 7.5: 早停检查 ===
@@ -1202,10 +1205,6 @@ if __name__ == '__main__':
 
         # 保存详细的预测结果到CSV文件，包含测试指标
         save_test_predictions(original_test_preds, original_test_targets, COIN_NAMES, model_variant_str, test_metrics)
-
-    elif TASK_TYPE == 'classification':
-        # 对于分类任务，使用专用的保存函数
-        save_classification_results(test_preds, test_targets, COIN_NAMES, model_variant_str, test_metrics)
 
     # === 步骤10: 打印最终测试结果 ===
     print(f"\n" + "="*60)
@@ -1321,3 +1320,4 @@ if __name__ == '__main__':
     print("✅ 训练脚本执行完成！")
     print("📁 检查 experiments/cache/ 目录查看保存的模型和结果")
     print("="*60)
+
