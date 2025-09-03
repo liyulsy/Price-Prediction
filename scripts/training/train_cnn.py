@@ -158,20 +158,28 @@ def set_random_seeds(seed=42):
     os.environ['PYTHONHASHSEED'] = str(seed)      # 确保字典等数据结构的顺序一致
 
 # --- Dynamic File Path ---
+# 根据任务类型创建子目录
+task_dir = "classification" if TASK_TYPE == "classification" else "regression"
+model_save_dir = os.path.join(CACHE_DIR, task_dir)
+
+# 确保保存目录存在
+os.makedirs(model_save_dir, exist_ok=True)
+
 model_variant = ['CNN', TASK_TYPE]
 model_variant.append("with_gcn" if USE_GCN else "no_gcn")
 model_variant.append("with_news" if USE_NEWS_FEATURES else "no_news")
 model_variant_str = "_".join(model_variant)
-BEST_MODEL_PATH = os.path.join(CACHE_DIR, f"{model_variant_str}_{BEST_MODEL_NAME}")
+BEST_MODEL_PATH = os.path.join(model_save_dir, f"{model_variant_str}_{BEST_MODEL_NAME}")
 print(f"--- Configuration: {model_variant_str} ---")
 print(f"Best model will be saved to: {BEST_MODEL_PATH}")
 
-def save_test_predictions(all_preds, all_targets, coin_names, model_name):
+def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_metrics=None):
     """保存测试集的预测值和真实值到CSV文件"""
-    save_dir = "experiments/caches/test_predictions"
-    os.makedirs(save_dir, exist_ok=True)
+    base_save_dir = "experiments/cache/test_predictions"
+    model_save_dir = os.path.join(base_save_dir, model_name)
+    os.makedirs(model_save_dir, exist_ok=True)
 
-    predictions_file = os.path.join(save_dir, f"test_predictions_{model_name}.csv")
+    predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
     with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['sample_idx', 'coin', 'true_value', 'predicted_value', 'absolute_error', 'percentage_error'])
@@ -184,7 +192,7 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name):
                 pct_error = (abs_error / abs(true_val)) * 100 if abs(true_val) > 1e-8 else float('inf')
                 writer.writerow([sample_idx, coin_name, true_val, pred_val, abs_error, pct_error])
 
-    statistics_file = os.path.join(save_dir, f"test_statistics_{model_name}.csv")
+    statistics_file = os.path.join(model_save_dir, "test_statistics.csv")
     with open(statistics_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['coin', 'mean_true', 'mean_pred', 'std_true', 'std_pred',
@@ -205,9 +213,67 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name):
                 mae, mape
             ])
 
-    print(f"测试集预测结果已保存到:")
-    print(f"  详细结果: {predictions_file}")
-    print(f"  统计信息: {statistics_file}")
+    # === 保存格式化的测试结果 (TXT格式) ===
+    if test_metrics:
+        results_txt_file = os.path.join(model_save_dir, "test_results.txt")
+
+        with open(results_txt_file, 'w', encoding='utf-8') as f:
+            f.write("🎉 最终测试结果\n")
+            f.write("="*60 + "\n")
+            f.write("📊 整体指标:\n")
+
+            # 写入整体指标
+            for name, value in test_metrics.items():
+                if not isinstance(value, dict):  # 跳过嵌套字典
+                    if isinstance(value, (int, float)):
+                        # 为不同指标添加中文注释
+                        if name.upper() == 'LOSS':
+                            comment = "# 测试损失 - 模型在测试集上的损失值"
+                        elif name.upper() == 'MAE':
+                            comment = "# 平均绝对误差 - 预测值与真实值的平均绝对差"
+                        elif name.upper() == 'RD':
+                            comment = "# 相对偏差 - |1-预测值总和/真实值总和|"
+                        elif name.upper() == 'MSE':
+                            comment = "# 均方误差 - 预测值与真实值差的平方的平均"
+                        elif name.upper() == 'RMSE':
+                            comment = "# 均方根误差 - MSE的平方根"
+                        elif name.upper() == 'R2':
+                            comment = "# 决定系数 - 模型解释数据变异性的比例(越接近1越好)"
+                        elif name.upper() == 'MAPE':
+                            comment = "# 平均绝对百分比误差 - 相对误差的百分比"
+                        elif 'NORMALIZED' in name.upper():
+                            comment = f"# 归一化{name.split('_')[-1]} - 消除币种价格尺度影响的{name.split('_')[-1]}"
+                        else:
+                            comment = ""
+
+                        if name.upper() == 'RD':
+                            f.write(f"    - RD: {value:.4f}  {comment}\n")
+                        else:
+                            f.write(f"    - {name.upper()}: {value:.4f}  {comment}\n")
+                    else:
+                        f.write(f"    - {name.upper()}: {value}\n")
+
+            f.write("\n📈 各币种详细指标:\n")
+
+            # 写入各币种详细指标
+            for coin_name in coin_names:
+                if coin_name in test_metrics:
+                    f.write(f"  🪙 {coin_name}:\n")
+                    coin_metrics = test_metrics[coin_name]
+                    for metric_name, metric_value in coin_metrics.items():
+                        if isinstance(metric_value, (int, float)):
+                            comment = f"# {coin_name}的{metric_name}"
+                            f.write(f"    - {metric_name.upper()}: {metric_value:.4f}  {comment}\n")
+                        else:
+                            f.write(f"    - {metric_name.upper()}: {metric_value}\n")
+
+            f.write(f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+    print(f"测试集预测结果已保存到 {model_save_dir}:")
+    print(f"  详细结果: test_predictions.csv")
+    print(f"  统计信息: test_statistics.csv")
+    if test_metrics:
+        print(f"  格式化结果: test_results.txt")
     return predictions_file, statistics_file
 
 def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, device, task_type, scaler=None, news_weight_scale=1.0):
@@ -422,15 +488,15 @@ def evaluate_model(model, data_loader, criterion, edge_index, edge_weights, devi
                 'rmse': np.sqrt(mean_squared_error(coin_targets, coin_preds))
             }
         
-        # Calculate new MAE: sum of all true values / sum of all predicted values
+        # Calculate RD: |1 - sum of all predicted values / sum of all true values|
         total_true_sum = np.sum(original_targets)
         total_pred_sum = np.sum(original_preds)
-        new_mae = total_true_sum / total_pred_sum if total_pred_sum != 0 else float('inf')
+        rd = abs(1 - total_pred_sum / total_true_sum) if total_pred_sum != 0 else float('inf')
 
         # Calculate overall metrics
         metrics.update({
             'mae': mean_absolute_error(original_targets, original_preds),
-            'new_mae': new_mae,
+            'rd': rd,
             'mse': mean_squared_error(original_targets, original_preds),
             'rmse': np.sqrt(mean_squared_error(original_targets, original_preds)),
             'r2': r2_score(original_targets, original_preds),
@@ -595,7 +661,7 @@ if __name__ == '__main__':
                 print(f"  文件夹不存在！")
 
     if USE_NEWS_FEATURES:
-        processed_news_path = os.path.join(CACHE_DIR, "all_processed_news_feature_new10days.pt")
+        processed_news_path = os.path.join(CACHE_DIR, "news_features", "all_processed_news_feature_new10days.pt")
     else:
         processed_news_path = None
         FORCE_RECOMPUTE_NEWS = False
@@ -877,7 +943,7 @@ if __name__ == '__main__':
             original_test_preds = test_preds
             original_test_targets = test_targets
 
-        save_test_predictions(original_test_preds, original_test_targets, COIN_NAMES, model_variant_str)
+        save_test_predictions(original_test_preds, original_test_targets, COIN_NAMES, model_variant_str, test_metrics)
 
     print(f"\n✅ Test Results:")
     print("  Overall:")

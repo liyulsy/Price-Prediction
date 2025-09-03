@@ -307,6 +307,7 @@ class UnifiedCryptoDataset(Dataset):
 
     def __getitem__(self, idx):
         seq_end_idx = idx + self.seq_len
+        target_start_idx = seq_end_idx
         target_end_idx = seq_end_idx + self.pred_len
 
         price_seq_df = self.price_data_df[self.coin_names].iloc[idx:seq_end_idx]
@@ -314,11 +315,20 @@ class UnifiedCryptoDataset(Dataset):
 
         if target_end_idx <= len(self.price_data_df):
             # We have a valid target sequence
-            target_price_df = self.price_data_df[self.coin_names].iloc[target_end_idx]
-            target_price_tensor = torch.tensor(target_price_df.values, dtype=torch.float32)
+            if self.pred_len == 1:
+                # 对于pred_len=1，获取单个时间点
+                target_price_df = self.price_data_df[self.coin_names].iloc[target_start_idx]
+                target_price_tensor = torch.tensor(target_price_df.values, dtype=torch.float32)
+            else:
+                # 对于pred_len>1，获取序列范围
+                target_price_df = self.price_data_df[self.coin_names].iloc[target_start_idx:target_end_idx]
+                target_price_tensor = torch.tensor(target_price_df.values, dtype=torch.float32)
         else:
             # This handles cases at the end of the dataset, including predict_mode where a dummy target is needed.
-            target_price_tensor = torch.zeros(self.num_coins, dtype=torch.float32)
+            if self.pred_len == 1:
+                target_price_tensor = torch.zeros(self.num_coins, dtype=torch.float32)
+            else:
+                target_price_tensor = torch.zeros(self.pred_len, self.num_coins, dtype=torch.float32)
 
         price_seq_mark = self.all_time_stamps_encoded[idx:seq_end_idx]
 
