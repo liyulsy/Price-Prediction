@@ -33,11 +33,11 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # - 'price': 预测绝对价格 (仅回归)
 # - 'diff': 预测价格差分 (仅分类)
 # - 'return': 预测价格变化率 (仅分类)
-PREDICTION_TARGET = 'diff'
+PREDICTION_TARGET = 'price'
 
 # 任务类型自动确定
 TASK_TYPE = 'regression' if PREDICTION_TARGET == 'price' else 'classification'
-USE_GCN = True                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
+USE_GCN = False                 # 是否使用图卷积网络：True=启用GCN, False=不使用GCN（暂时禁用）
 USE_NEWS_FEATURES = False    # 是否使用新闻特征：True=包含新闻数据, False=仅使用价格数据
 
 # --- Graph Construction Configuration ---
@@ -70,7 +70,7 @@ GRAPH_PARAMS = {
 
 # --- GCN Configuration ---
 # GCN配置：选择图卷积网络的架构类型
-GCN_CONFIG = 'improved_light'  # GCN架构选择：使用最简单的配置避免过拟合
+GCN_CONFIG = 'improved_gelu'  # GCN架构选择：使用最简单的配置避免过拟合
 # 可选配置：'basic'(基础GCN), 'improved_light'(轻量改进), 'improved_gelu'(GELU激活),
 #          'gat_attention'(图注意力), 'adaptive'(自适应GCN)
 
@@ -110,8 +110,8 @@ NUM_CLASSES = 1 if TASK_TYPE == 'regression' else 2  # 输出类别数：回归�
 
 # --- Training Parameters ---
 # 训练参数配置 - 加速优化版本
-BATCH_SIZE = 32                    # 批次大小：增加到64以提高GPU利用率
-EPOCHS = 20                        # 训练轮数：减少到30个epoch，配合更高学习率
+BATCH_SIZE = 256                   # 批次大小：增加到64以提高GPU利用率
+EPOCHS = 2                       # 训练轮数：20个epoch，配合早停机制
 LEARNING_RATE = 0.0001            # 学习率：大幅降低以解决R2负值问题
 WEIGHT_DECAY = 1e-4               # 权重衰减：保持不变
 VALIDATION_SPLIT_RATIO = 0.15     # 验证集比例：15%的数据用于验证
@@ -309,11 +309,8 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
     predictions_file = os.path.join(model_save_dir, "test_predictions.csv")
     with open(predictions_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        # 根据任务类型写入不同的表头
-        if TASK_TYPE == 'regression':
-            writer.writerow(['sample_idx', 'coin', 'true_value', 'predicted_value', 'absolute_error', 'percentage_error'])
-        else:  # classification
-            writer.writerow(['sample_idx', 'coin', 'true_label', 'predicted_label', 'is_correct'])
+       
+        writer.writerow(['sample_idx', 'coin', 'true_value', 'predicted_value', 'absolute_error', 'percentage_error'])
 
         # === 遍历所有样本和币种 ===
         for sample_idx in range(len(all_preds)):
@@ -321,22 +318,13 @@ def save_test_predictions(all_preds, all_targets, coin_names, model_name, test_m
                 # === 提取当前样本当前币种的预测值和真实值 ===
                 true_val = all_targets[sample_idx, coin_idx]
                 pred_val = all_preds[sample_idx, coin_idx]
-
-                # === 根据任务类型计算不同的指标 ===
-                if TASK_TYPE == 'regression':
-                    # 回归任务：计算数值误差
-                    abs_error = abs(true_val - pred_val)  # 绝对误差
-                    # 计算百分比误差，避免除零错误
-                    pct_error = (abs_error / abs(true_val)) * 100 if abs(true_val) > 1e-8 else float('inf')
-                    # 写入回归数据
-                    writer.writerow([sample_idx, coin_name, true_val, pred_val, abs_error, pct_error])
-                else:
-                    # 分类任务：计算分类准确性
-                    is_correct = 1 if true_val == pred_val else 0  # 是否预测正确
-                    true_label = "上涨" if true_val == 1 else "下跌"
-                    pred_label = "上涨" if pred_val == 1 else "下跌"
-                    # 写入分类数据
-                    writer.writerow([sample_idx, coin_name, true_label, pred_label, is_correct])
+                
+                abs_error = abs(true_val - pred_val)  # 绝对误差
+                # 计算百分比误差，避免除零错误
+                pct_error = (abs_error / abs(true_val)) * 100 if abs(true_val) > 1e-8 else float('inf')
+                # 写入回归数据
+                writer.writerow([sample_idx, coin_name, true_val, pred_val, abs_error, pct_error])
+    
 
     # === 保存统计信息 ===
     # 包含每个币种的统计指标汇总
@@ -760,8 +748,8 @@ if __name__ == '__main__':
     print(f"🎯 设置随机种子: {RANDOM_SEED}")
     print(f"📱 使用设备: {DEVICE}")
 
-    # GPU性能优化
-    optimize_gpu_performance()
+    # # GPU性能优化
+    # optimize_gpu_performance()
 
     # 创建缓存目录（如果不存在）
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -1047,7 +1035,7 @@ if __name__ == '__main__':
 
     # 早停机制变量
     if TASK_TYPE == 'classification':
-        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（初始化为负无穷大）
+        best_val_metric = float('inf')    # 分类任务：使用负F1分数，所以初始化为正无穷大
     else:
         best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
     patience_counter = 0                  # 耐心计数器（记录连续没有改善的epoch数）
@@ -1182,7 +1170,7 @@ if __name__ == '__main__':
         # 获取用于学习率调度的验证指标
         if TASK_TYPE == 'classification':
             # 分类任务使用F1分数（越大越好，需要取负值用于早停）
-            val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
+            val_metric_for_scheduler = -val_metrics.get('f1_score', 0)  # 取负值，因为早停机制是基于"越小越好"
         else:
             # 回归任务使用损失（越小越好）
             val_metric_for_scheduler = val_metrics['loss']
@@ -1248,15 +1236,7 @@ if __name__ == '__main__':
                     print(f"  - {name.upper()}: {value}")
 
         # === 7.4: 早停机制和最佳模型保存 ===
-        # 检查验证指标是否有显著改善
-        if TASK_TYPE == 'classification':
-            # 分类任务：F1分数越大越好（使用负值，所以比较逻辑相同）
-            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
-        else:
-            # 回归任务：损失越小越好
-            improved = val_metric_for_scheduler < best_val_metric - MIN_DELTA
-
-        if improved:
+        if val_metric_for_scheduler < best_val_metric - MIN_DELTA:
             # 有显著改善：更新最佳指标，重置耐心计数器，保存模型
             best_val_metric = val_metric_for_scheduler  # 更新最佳验证指标
             patience_counter = 0                        # 重置耐心计数器
@@ -1268,7 +1248,10 @@ if __name__ == '__main__':
         else:
             # 没有显著改善：增加耐心计数器
             patience_counter += 1
-            print(f"⏳ 连续 {patience_counter} 个epoch无改善")
+            if TASK_TYPE == 'classification':
+                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳F1: {-best_val_metric:.4f})")
+            else:
+                print(f"⏳ 连续 {patience_counter} 个epoch无改善 (最佳损失: {best_val_metric:.4f})")
 
         # === 7.5: 早停检查 ===
         # 如果连续无改善的epoch数达到耐心值，触发早停

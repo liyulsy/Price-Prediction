@@ -81,8 +81,7 @@ GCN_CONFIG = 'improved_light'  # GCN架构选择
 # 数据和缓存路径配置
 PRICE_CSV_PATH = 'scripts/analysis/crypto_analysis/data/processed_data/1H/all_1H.csv'  # 价格数据文件路径
 NEWS_FEATURES_FOLDER = 'scripts/analysis/crypto_new_analyzer/features'                # 新闻特征文件夹路径
-CACHE_DIR = "experiments/caches"        # 缓存目录：存储模型和中间结果
-CACHE_DIR1 = "experiments/cache"
+CACHE_DIR = "experiments/cache"        # 缓存目录：存储模型和中间结果
 BEST_MODEL_NAME = "best_timexer_model.pt"  # 最佳模型文件名
 
 # --- Dataset Parameters ---
@@ -106,7 +105,7 @@ NUM_CLASSES = 1 if TASK_TYPE == 'regression' else 2  # 输出类别数：回归�
 # --- Training Parameters ---
 # 训练参数配置
 BATCH_SIZE = 32                    # 批次大小：每次训练使用32个样本
-EPOCHS = 50                        # 训练轮数：最大训练50个epoch（可能因早停而提前结束）
+EPOCHS = 1                        # 训练轮数：最大训练50个epoch（可能因早停而提前结束）
 LEARNING_RATE = 0.001             # 学习率：控制参数更新的步长，提高初始学习率
 WEIGHT_DECAY = 1e-5               # 权重衰减：L2正则化系数，防止过拟合
 VALIDATION_SPLIT_RATIO = 0.15     # 验证集比例：15%的数据用于验证
@@ -964,7 +963,7 @@ if __name__ == '__main__':
 
     # 早停机制变量
     if TASK_TYPE == 'classification':
-        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（使用负值，初始化为负无穷大）
+        best_val_metric = float('inf')    # 分类任务：使用负F1分数，所以初始化为正无穷大
     else:
         best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
     patience_counter = 0                  # 耐心计数器（记录连续没有改善的epoch数）
@@ -1078,7 +1077,7 @@ if __name__ == '__main__':
         # 选择不同的指标用于学习率调度和早停
         if TASK_TYPE == 'classification':
             # 分类任务使用F1分数（越大越好，需要取负值用于早停）
-            val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
+            val_metric_for_scheduler = -val_metrics.get('f1_score', 0)  # 取负值，因为早停机制是基于"越小越好"
         else:
             # 回归任务使用损失（越小越好）
             val_metric_for_scheduler = val_metrics['loss']

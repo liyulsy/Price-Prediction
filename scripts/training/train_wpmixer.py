@@ -1030,7 +1030,7 @@ if __name__ == '__main__':
 
     # 早停机制变量
     if TASK_TYPE == 'classification':
-        best_val_metric = float('-inf')   # 分类任务：F1分数越大越好（使用负值，初始化为负无穷大）
+        best_val_metric = float('inf')    # 分类任务：使用负F1分数，所以初始化为正无穷大
     else:
         best_val_metric = float('inf')    # 回归任务：损失越小越好（初始化为正无穷大）
     patience_counter = 0                  # 耐心计数器（记录连续没有改善的epoch数）
@@ -1162,7 +1162,7 @@ if __name__ == '__main__':
         # 获取用于学习率调度的验证指标
         if TASK_TYPE == 'classification':
             # 分类任务使用F1分数（越大越好，需要取负值用于早停）
-            val_metric_for_scheduler = -val_metrics.get('f1', 0)  # 取负值，因为早停机制是基于"越小越好"
+            val_metric_for_scheduler = -val_metrics.get('f1_score', 0)  # 取负值，因为早停机制是基于"越小越好"
         else:
             # 回归任务使用损失（越小越好）
             val_metric_for_scheduler = val_metrics['loss']
